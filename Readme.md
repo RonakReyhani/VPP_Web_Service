@@ -1,3 +1,6 @@
+### Part 1: Simple program using Python that can calculate the distribution of revenues for (fictional) VPPs based off (fictional) charge & discharge data.
+
+
 How to run the report generator service:
 
 - Setup
@@ -48,3 +51,65 @@ How to run the report generator service:
 
 - run tests
     - pytests -v -s
+
+
+### Part 2:
+
+To design the UI -> API -> AWS Resources for this report service, I assume we are fully on AWS, we don't have requirements like being multi cloud or the neccessity of being able to run the Service APIs and UI locally.
+
+Two ways to implement this (more specifically the API service): 
+- option 1: FastAPI, ELB, Docker, Fargate > ECS Tasks runs the docker image, Postgres SQL, Postgres schema with SQLAlchemy, and React UI
+- option 2: API Gateway, Lambda , Postgres SQL, Appsync Graphql for type safety, Postgres SQL:
+
+
+My preference for this API service is Option 2, simple enough to choose the standard services and I am not using DynamoDB here only because the data structure is very clear, easy to define from the begining and due to the relation between model classes, I rather to go with relational database. instead of Dynamo db and a single table. 
+
+
+#### Solution architecture
+
+![my solution design](./architecture/service-design.png)
+
+#### API Endpoint:
+```
+Create VPP: POST /vpps { name, revenue_percentage, daily_fee_aud? }
+
+Update VPP: PUT /vpps/{vpp_id} 
+
+Create Site: POST /sites  { vpp_id, nmi, address }
+
+Update Site: PUT /sites/{site_id} 
+
+Reassign a Site to another VPP: POST /sites/{site_id}/assign-vpp/{vpp_id}
+
+Add battery to site: POST /sites/{site_id}/batteries { manufacturer, serial, capacity_kwh }
+
+Update battery: PUT /batteries/{battery_id}
+
+Remove battery: DELETE /batteries/{battery_id} 
+
+Stream import: POST /import-events (multipart CSV); returns { imported, skipped }
+
+Revenue-sharing: POST /generate-report/{vpp_id}?month=YYYY-MM; return s3 presigned url to download the report when it's ready
+
+Download report: GET /download-report
+
+```
+
+#### Streaming the Events file in rather than pulling it all into memory
+for file uploads I usually go with 
+- an apigateway lambda resolver that generates a put presign url so that user can uploading the csv file to S3 bucket.
+- S3 upload/ file create event can trigger the lambda function to process the event csv file
+- Lambda can process the file with S3 read Stream, if file is too big, at each point we can update the status of ingest/import within database for the given file, so that if it was intrrupted we can retry from the failing checkpoint.
+
+#### Comments towards observability:
+lambda function will log into cloudwatch log group, we can have metrics and alarms if i.e. a lambda error rate is more than 5%
+
+#### Comments towards REST endpoint “productisation”, e.g. auth, rate limiting
+API gateway supports rate limiting to avoid malicious invokations.
+API Gatewat supports multiple way for authentications, one simple but not safe is API Key, another approach is Lambda authoriser, or Cognito user pool, and I think IAM is also another authorization method. 
+
+Also Lambda Execution role needs to have least privilage access with restricted IAM policies to only allow permissions to integrated services and nothing more. 
+
+For Input Validation we could Validate query params, headers, request body. Prevent invalid or malicious data.
+
+
