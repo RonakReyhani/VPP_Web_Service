@@ -10,8 +10,9 @@ from abc import ABC, abstractmethod
 from typing import Dict
 from models.data_class import VPP, EventType, Site, Battery, Event
 import csv
-from datetime import datetime
-
+from datetime import datetime, date
+import calendar
+import json
 
 class Utils(ABC):
     @abstractmethod
@@ -30,9 +31,9 @@ class Utils(ABC):
     def import_events(self, file_path: str):
         pass
 
-    # @abstractmethod
-    # def create_report(self, vpp_name: str, month_yyyy_mm: str):
-    #     pass
+    @abstractmethod
+    def create_report(self, vpp_name: str, month_yyyy_mm: str):
+        pass
 
     @abstractmethod
     def exit(self,vpp_name: str, month_yyyy_mm: str):
@@ -46,6 +47,13 @@ class VPPUtils(Utils):
         self.sites: Dict[str, Site] = {}
         self.last_report: dict ={}
 
+    @staticmethod
+    def find_month_start_end(yyyymm: str):
+        year, month = [int(x) for x in yyyymm.split("-", 1)]
+        start = date(year, month, 1)
+        last_day = calendar.monthrange(year, month)[1]
+        end = date(year, month, last_day)
+        return start, end
     
     def create_update_vpp(self, name: str, revenue_percentage: float, daily_fee_aud: float):
         #  update
@@ -122,7 +130,98 @@ class VPPUtils(Utils):
             raise
         print(f"Imported={imported}, Skipped={skipped}")
     
-    
+    def create_report(self, vpp_name, month_yyyy_mm):
+        # ===================== Assertion =====================
+        # assert if vpp exist
+        if vpp_name not in self.vpps:
+            raise ValueError(f"VPP '{vpp_name}' not found")
+        
+        # get the sites for the vpp and if not sites then skip generating the report
+        sites = [s for s in self.sites.values() if s.vpp_name == vpp_name]
+        if not sites:
+            print(f"VPP has not sites to generate reports")
+            return
+        
+        # ===================== constraints =====================
+        start, end = self.find_month_start_end(month_yyyy_mm)
+        capacity_per_site= {s.nmi: sum(b.capacity_kwh for b in s.batteries) for s in sites}
+        total_capacity= sum(capacity_per_site.values())
+        vpp = self.vpps[vpp_name]
+        contributed_sites = {s.nmi: 0.0 for s in sites}
+        vpp_cost_only= 0.0
+        total_revenue= 0.0
+        days= 28
+
+        # ===================== Core logic to calculate the revenue per site and for VPP =====================
+        # total revenue for sites for the given month
+        for s in sites:
+            for ev in s.events:
+                if not(start <= ev.date <= end):
+                    print(f"event date {ev.date} is not valid for this report");
+                    continue
+                value = (ev.tariff_cents_per_kwh* ev.energy_kwh) / 100
+                if(value <0 and ev.event_type == EventType.DISCHARGE):
+                    # discharge negative values are 100% vpp only cost
+                    vpp_cost_only +=value
+                else:
+                    total_revenue +=value
+                    contributed_sites[ev.nmi] += value
+        
+        # The VPP is assigned its margin of the revenue first
+        vpp_margin = total_revenue * (vpp.revenue_percentage / 100)
+        # Of the remainder of the revenue
+        revenue_reminder = total_revenue - vpp_margin
+        share_per_site = {s.nmi: 0.0 for s in sites}
+        if(revenue_reminder > 0 ):
+            # 80% is assigned to the Site that had an event
+            total_contributions = sum(contributed_sites.values())
+            if total_contributions > 0:
+                for sid, contrib in contributed_sites.items():
+                    share_per_site[sid] = 0.8 * revenue_reminder * (contrib / total_contributions)
+
+            # 20% is distributed across all Sites, proportionally according to their batteries' capacity
+            if total_capacity > 0:
+                for sid, cap in capacity_per_site.items():
+                    share_per_site[sid] += 0.2 * revenue_reminder * (cap / total_capacity)
+
+                        
+        # Daily fees are taken from a Site’s revenue and given to the VPP, assuming 28 days every month
+        # Daily fees cannot make a Site’s total revenue for the month go negative
+        site_fees = {}
+        for sid, amount in share_per_site.items():
+            fee = vpp.daily_fee_aud * days
+            actual_fee = min(max(amount, 0), fee)
+            share_per_site[sid] -= actual_fee
+            site_fees[sid] = actual_fee
+
+        # construct the report:
+        vpp_total_revenue = vpp_margin + sum(site_fees.values()) + vpp_cost_only
+        report = {
+            "vpp": vpp.name,
+            "month": month_yyyy_mm,
+            "totals": {
+                "total_revenue": round(total_revenue, 2),
+                "vpp_ad_valorem_fee": round(vpp_margin, 2),
+                "vpp_cost_only": round(vpp_cost_only, 2),
+                "vpp_total_revenue":round(vpp_total_revenue, 2),
+                "site_total_revenue_after_fees": round(sum(share_per_site.values()), 2),
+            },
+            "sites": {
+                s.nmi: {
+                    "nmi": s.nmi,
+                    "address": s.address,
+                    "site_capacity_kwh": round(capacity_per_site[s.nmi], 2),
+                    "site_revenue_before_fees": round(share_per_site[s.nmi] + site_fees[s.nmi], 2),
+                    "site_daily_fee": round(site_fees[s.nmi], 2),
+                    "site_revenue_after_fees": round(share_per_site[s.nmi], 2),
+                }
+                for s in sites
+            }
+        }
+        self.last_report = report
+        return(json.dumps(report, indent=2))
+
+
     def exit(self):
         if self.last_report:
             print(f"Report for VPP '{self.last_report['vpp']}' for month '{self.last_report['month']}' generated successfully. Exiting.")

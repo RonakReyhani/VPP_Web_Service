@@ -1,10 +1,18 @@
+from datetime import date
 import pytest
-from models.data_class import VPP, Site, Battery
+from models.data_class import Event, EventType, Battery
 from utils.vpp_utils import VPPUtils
+import uuid
 
 @pytest.fixture
 def utils():
     return VPPUtils()
+
+def setup_for_create_report(utils, vpp_name, nmi, cap, addr="Test Addr"):
+    utils.create_update_vpp(vpp_name, revenue_percentage=10.0, daily_fee_aud=0.5)
+    utils.create_update_site(vpp_name, nmi, addr)
+    utils.sites[nmi].batteries.append(Battery(capacity_kwh=cap, manufacturer="man 001", serial=uuid.uuid4()))
+    return utils.sites[nmi]
 
 def test_create_update_vpp(utils, capsys):
 
@@ -21,7 +29,6 @@ def test_create_update_vpp(utils, capsys):
     assert "Updated VPP 'VPP1'" in captured.out
     assert utils.vpps["VPP1"].revenue_percentage == 25.0
     assert utils.vpps["VPP1"].daily_fee_aud == 0.8
-
 
 def test_create_update_site_raises_error_for_missing_vpp(utils):
 
@@ -46,8 +53,6 @@ def test_create_update_site(utils, capsys):
     captured = capsys.readouterr()
     assert "Updated Site NMI=1234567890" in captured.out
     assert utils.sites["1234567890"].address == "New Address"
-
-
 
 def test_create_update_battery_raises_error_for_missing_site(utils):
 
@@ -88,8 +93,6 @@ def test_exit(utils, capsys):
     captured = capsys.readouterr()
     assert "Report for VPP 'VPP1' for month '2025-09' generated successfully. Exiting." in captured.out
 
-
-
 def test_import_events(utils, capsys):
 
     utils.create_update_vpp("VPP1", revenue_percentage=10.0, daily_fee_aud=0.5)
@@ -118,3 +121,88 @@ def test_import_events(utils, capsys):
     assert site.events[0].energy_kwh == 5.0
     assert site.events[1].event_type.value == "Discharge"
     assert site.events[1].tariff_cents_per_kwh == 25
+
+def test_create_report_no_sites_in_vpp(utils, capsys):
+    utils.create_update_vpp("EMPTY", 5, 1.0)
+    utils.create_report("EMPTY", "2025-09")
+    captured = capsys.readouterr().out
+    assert "has not sites" in captured
+
+def test_create_report_event_outside_month_is_skipped(utils):
+    site = setup_for_create_report(utils, "VPP1", "333", 10)
+    site.events.append(Event("333", date(2025, 8, 1), EventType.DISCHARGE, 10, 20))
+    utils.create_report("VPP1", "2025-09")
+    report = utils.last_report
+    assert report["totals"]["total_revenue"] == 0
+
+def test_create_report_daily_fees_cannot_exceed_revenue(utils):
+    site = setup_for_create_report(utils, "VPP1", "444", 10)
+    site.events.append(Event("444", date(2025, 9, 1), EventType.CHARGE, 0.01, 1))
+    utils.create_report("VPP1", "2025-09")
+    report = utils.last_report
+    assert report["sites"]["444"]["site_revenue_after_fees"] == 0
+
+def test_create_report_zero_capacity_distribution(utils):
+    s1 = setup_for_create_report(utils, "VPP1", "S1", 0)
+    setup_for_create_report(utils, "VPP1", "S2", 0)
+    s1.events.append(Event("S1", date(2025, 9, 1), EventType.CHARGE, 5, 10))
+    utils.create_report("VPP1", "2025-09")
+    report = utils.last_report
+
+    assert report["totals"]["total_revenue"] > 0
+    assert report["totals"]["total_revenue"] == 0.5
+    assert all(sid in report["sites"] for sid in ["S1", "S2"])
+
+def test_create_report_multiple_sites_with_capacity_split_0_revenue(utils):
+    s1 = setup_for_create_report(utils, "VPP1", "A", 5)
+    s2 = setup_for_create_report(utils, "VPP1", "B", 15)
+
+    s1.events.append(Event("A", date(2025, 9, 1), EventType.DISCHARGE, 10, 20)) 
+    s2.events.append(Event("B", date(2025, 9, 1), EventType.CHARGE, 5, 20))
+
+    utils.create_report("VPP1", "2025-09")
+    report = utils.last_report
+
+    assert report["sites"]["A"]["site_revenue_after_fees"] == 0
+    assert report["sites"]["B"]["site_revenue_after_fees"] == 0
+    assert report["totals"]["vpp_total_revenue"] == 3.0
+
+def test_create_report_single_discharge_cost_event(utils, capsys):
+    site = setup_for_create_report(utils, "VPP1", "222", 10)
+
+    site.events.append(Event("222", date(2025, 9, 1), EventType.DISCHARGE, 10, -20))
+
+    utils.create_report("VPP1", "2025-09")
+    report = utils.last_report
+    print(report)
+    assert report["totals"]["total_revenue"] == 0
+    assert report["totals"]["vpp_cost_only"] < 0
+    assert report["totals"]["vpp_total_revenue"] < 0
+
+def test_create_report_single_charge_event(utils, capsys):
+    site = setup_for_create_report(utils, "VPP1", "111", 10)
+    site.events.append(Event("111", date(2025, 9, 1), EventType.CHARGE, 10, 20))
+    
+    utils.create_report("VPP1", "2025-09")
+
+    report = utils.last_report
+    print(report)
+
+    assert report["totals"]["total_revenue"] > 0
+    assert report["totals"]["vpp_total_revenue"] > 0
+    assert report["sites"]["111"]["site_revenue_after_fees"] == 0
+
+def test_create_report_site_has_positive_revenue_after_fees(utils):
+    site = setup_for_create_report(utils, "VPP1", "111", 10)
+
+    # Discharge earns enough to cover VPP margin + site daily fee
+    site.events.append(Event("111", date(2025, 9, 1), EventType.DISCHARGE, 10, 500))  
+    # → revenue = 10 * 500 / 1000 = 5.0
+
+    utils.create_report("VPP1", "2025-09")
+    report = utils.last_report
+    print(report)
+
+    assert report["totals"]["total_revenue"] == 50
+    assert report["totals"]["vpp_total_revenue"] == 19
+    assert report["sites"]["111"]["site_revenue_after_fees"] == 31
