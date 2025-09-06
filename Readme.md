@@ -1,10 +1,14 @@
+
+### Assignment
+Original instructions were stored in requirements directory [Part1](requirements/part1.md) and [Part2](requirements/part2.md).
+
 ### Part 1: Simple program using Python that can calculate the distribution of revenues for (fictional) VPPs based off (fictional) charge & discharge data.
 
 
 How to run the report generator service:
 
 - Setup
-    - Cd ./implementation
+    - Root Directory: cd ./implementation
     - Create env environment: python3 -m venv env
     - Activate the virtual env: source env/bin/activate
     - Install requirements: pip install -r requirements.txt
@@ -20,9 +24,11 @@ How to run the report generator service:
         ├─ events_file.csv               # Sample events file
         └─ requirements.txt
 ```
+p.s. There is a [chain_of_thoughts](implementation/chain_of_thoughts.md) file, that is just my load thinking and repeat of summery for requirements
+
 - Run handler: 
     - python -m service.report_generator
-    - use the sample from **STDIN.txt**
+    - use the sample from **STDIN.txt** file.
     - generated report would be like and will be saved to **vpp_report.json** file:
         ```
             {
@@ -49,7 +55,7 @@ How to run the report generator service:
 
         ```
 
-- run tests
+- Run test cases
     - pytests -v -s
 
 
@@ -66,6 +72,8 @@ My preference for this API service is Option 2, simple enough to choose the stan
 
 
 #### Solution architecture
+
+for further information please refer to [architecture/part2-service_design.drawio](architecture/part2-service_design.drawio)
 
 ![my solution design](./architecture/service-design.png)
 
