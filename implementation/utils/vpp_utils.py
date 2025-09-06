@@ -8,9 +8,10 @@
 # exit method: just logs the report generated successfully message
 from abc import ABC, abstractmethod
 from typing import Dict
-from models.data_class import VPP, Site, Battery
-from datetime import date
-import calendar
+from models.data_class import VPP, EventType, Site, Battery, Event
+import csv
+from datetime import datetime
+
 
 class Utils(ABC):
     @abstractmethod
@@ -25,9 +26,9 @@ class Utils(ABC):
     def create_update_battery(self, site_nmi: str, manufacturer: str, serial: str, capacity_kwh: float):
         pass
 
-    # @abstractmethod
-    # def import_events(self, file_path: str):
-    #     pass
+    @abstractmethod
+    def import_events(self, file_path: str):
+        pass
 
     # @abstractmethod
     # def create_report(self, vpp_name: str, month_yyyy_mm: str):
@@ -90,6 +91,37 @@ class VPPUtils(Utils):
         bat = Battery(manufacturer=manufacturer, serial=serial, capacity_kwh=capacity_kwh)
         site.batteries.append(bat)
         print(f"Created Battery serial={serial} at site {site_nmi}")
+    
+    def import_events(self, file_path: str):
+        imported, skipped = 0, 0
+        try:
+            with open(file_path, newline='', encoding='utf-8') as fh:
+                reader = csv.DictReader(fh)
+                for row in reader:
+                    try:
+                        nmi = row['NMI'].strip()
+                        if nmi not in self.sites:
+                            skipped += 1
+                            continue
+                        dt = datetime.strptime(row['DATE'].strip(), "%Y-%m-%d").date()
+                        ev_type_str = row['EVENT_TYPE'].strip().title()
+                        
+                        if ev_type_str not in [e.value for e in EventType]:
+                            skipped += 1
+                            continue
+                        ev_type = EventType[ev_type_str.upper()]
+                        energy = float(row['ENERGY'])
+                        tariff = float(row['TARIFF'])
+                        event = Event(nmi=nmi, date=dt, event_type=ev_type, energy_kwh=energy, tariff_cents_per_kwh=tariff)
+                        self.sites[nmi].events.append(event)
+                        imported += 1
+                    except Exception as e:
+                        skipped += 1
+                        print(f"Skipping event, Error: {e}")
+        except FileNotFoundError:
+            raise
+        print(f"Imported={imported}, Skipped={skipped}")
+    
     
     def exit(self):
         if self.last_report:

@@ -87,3 +87,34 @@ def test_exit(utils, capsys):
     utils.exit()
     captured = capsys.readouterr()
     assert "Report for VPP 'VPP1' for month '2025-09' generated successfully. Exiting." in captured.out
+
+
+
+def test_import_events(utils, capsys):
+
+    utils.create_update_vpp("VPP1", revenue_percentage=10.0, daily_fee_aud=0.5)
+    utils.create_update_site("VPP1", "1234567890", "Test Address")
+
+
+    csv_content = """NMI,DATE,EVENT_TYPE,ENERGY,TARIFF
+1234567890,2025-09-01,Charge,5.0,20
+1234567890,2025-09-02,Discharge,3.0,25
+9999999999,2025-09-03,Charge,2.0,15
+1234567890,2025-09-04,InvalidType,1.0,10
+"""
+    csv_file = "events.csv"
+    with open(csv_file, "w", encoding="utf-8") as f:
+        f.write(csv_content)
+
+    utils.import_events(str(csv_file))
+
+    captured = capsys.readouterr()
+    print(captured.out)
+    assert "Imported=2, Skipped=2" in captured.out
+
+    site = utils.sites["1234567890"]
+    assert len(site.events) == 2
+    assert site.events[0].event_type.value == "Charge"
+    assert site.events[0].energy_kwh == 5.0
+    assert site.events[1].event_type.value == "Discharge"
+    assert site.events[1].tariff_cents_per_kwh == 25
