@@ -1,0 +1,21 @@
+{
+  "vpp": "Test VPP One",
+  "month": "2025-09",
+  "totals": {
+    "total_revenue": 1.75,
+    "vpp_ad_valorem_fee": 0.35,
+    "vpp_cost_only": 0.0,
+    "vpp_total_revenue": 1.75,
+    "site_total_revenue_after_fees": 0.0
+  },
+  "sites": {
+    "9876543210": {
+      "nmi": "9876543210",
+      "address": "426 King St Newcastle West NSW 2302",
+      "site_capacity_kwh": 13.5,
+      "site_revenue_before_fees": 1.4,
+      "site_daily_fee": 1.4,
+      "site_revenue_after_fees": 0.0
+    }
+  }
+}

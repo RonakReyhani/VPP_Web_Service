@@ -1,0 +1,6 @@
+Create VPP: Test VPP One, 20, 0.30
+Create Site: Test VPP One, 9876543210, 426 King St Newcastle West NSW 2302
+Create Battery: 9876543210, Tesla, 38764527113388, 13.5
+Import Events: events_file.csv
+Create Report: Test VPP One, 2025-09
+Exit

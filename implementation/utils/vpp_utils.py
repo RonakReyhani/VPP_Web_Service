@@ -219,7 +219,7 @@ class VPPUtils(Utils):
             }
         }
         self.last_report = report
-        return(json.dumps(report, indent=2))
+        return report
 
 
     def exit(self):
