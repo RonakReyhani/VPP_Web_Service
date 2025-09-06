@@ -38,8 +38,6 @@ class Utils(ABC):
     @abstractmethod
     def exit(self,vpp_name: str, month_yyyy_mm: str):
         pass
-
-# TODO: class implements the abstract class
 class VPPUtils(Utils):
 
     def __init__(self):
