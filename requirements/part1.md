@@ -2,6 +2,7 @@
 ### Exercise
 Homeowners with batteries and commercial battery owners join Virtual Power Plants (VPPs),which automatically charge and discharge batteries in response to network demand in order to maximise revenues. The profits are shared between the VPP and its members.
 You should spend 2-3 hours working on the problem in total.
+
 You may not finish all of the functionality, so prioritise the parts that you think would be most important for us to review, and let us know about any things that you would have liked to have done but didn’t get around to.
 We’d love to see a Git repository showing commits you made as you developed your solution.
 Respond by email with your source code and Git repo in a ZIP file within 24 hours.
